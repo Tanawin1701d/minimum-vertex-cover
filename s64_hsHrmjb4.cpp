@@ -4,10 +4,12 @@
 #include<iostream>
 #include <algorithm>
 #include <queue>
+#include <stack>
 #include <fstream>
 #include <sstream>
 #include <bitset>
 #include <chrono>
+#include <boost/multiprecision/cpp_int.hpp>
 #include "controller.h"
 
 using namespace std;
@@ -25,6 +27,8 @@ const int BIT_CT_PER     = 8; // 8 bit
 const int BIT_CT_MARKER  = (1<<BIT_CT_PER)-1;
 const int NCORE          = 8;
 const int MAXNODE        = 100;
+
+const int autoBuildSize  = 7;
 
 struct BELE{
     RVAR  result;
@@ -50,10 +54,15 @@ int  c[BIT_CT_ARR];
 RVAR EXPECTED_RESULT;
 RVAR CURRENT_ANS;
 ui16 CURRENT_BITCOUNT;
-
+bool        resultBuf[MAXNODE];
+/// renamer variable
+bool        isRenamed[MAXNODE]; // use index of real name
+vector<int> renameBuf[MAXNODE]; // use index and value of real name
+int         renamer  [MAXNODE]; // index real name // value is converted name
+int         derenamer[MAXNODE]; // index converted name // value is real name
 
 ///////////////////////////////////bitcounter
-void buildCounter(){
+void   buildCounter(){
     for (int i = 0; i < BIT_CT_ARR; i++){
         int j = i;
         int ct = 0;
@@ -63,18 +72,65 @@ void buildCounter(){
         }
         c[i] = ct;
     }
-} /// check1
-ui16 bitCount64(RVAR sz){
+}
+ui16   bitCount64  (RVAR sz){
     ui16 ct = 0;
     for (int i = 0; i < 64/BIT_CT_PER; i++){
-        ct += (ui16)c[sz & BIT_CT_MARKER];
+        ct += ((ui16)c[sz & BIT_CT_MARKER]);
         sz >>= BIT_CT_PER;
     }
     return ct;
 }
-/////////////////////////////////// BD
+///////////////////////////////////renamer and initialize BELE
+bool rmCmp(const int& struct1, const int& struct2){
+        return renameBuf[struct1].size() < renameBuf[struct2].size();
+}
+void   graphRenameAndAssign(){
+    queue<int> q;
+    int newKey = 0;
+    int conectedDetector = 0;
+    vector<int> initQ;
+    for (int nd = 0; nd < level; nd++){
+        initQ.push_back(nd);
+    }
+    sort(initQ.begin(), initQ.end(), rmCmp);
 
-void cleanCompose(){
+    for (int nd: initQ){
+        if (!isRenamed[nd]) {
+            q.push(nd);
+            conectedDetector++;
+        }
+        while (!q.empty()){
+            int myRealNode = q.front(); q.pop();
+            if (!isRenamed[myRealNode]){
+                isRenamed[ myRealNode ] = true;
+                renamer  [ myRealNode ] = newKey; // outgoing
+                derenamer[ newKey     ] = myRealNode; // backward for composed result
+                ////// update new key
+                newKey++;
+                vector<int> preQ;
+                for (int e : renameBuf[myRealNode]){
+                    preQ.push_back(e);
+                }
+                sort(preQ.begin(), preQ.end(), rmCmp);
+                for (int e : preQ) {
+                    q.push(e);
+                }
+            }
+        }
+    }
+    cout << ">> system is connected : " << (conectedDetector == 1) << endl;
+
+    for (int srcNd = 0; srcNd < level; srcNd++){
+        for (int nxtNd : renameBuf[srcNd]){
+            int srcRenamed = renamer[srcNd];
+            int desRenamed = renamer[nxtNd];
+            a[srcRenamed].result |= (((RVAR)1) << desRenamed);
+        }
+    }
+
+}
+void   cleanCompose(){
     for (int lv = 0; lv < level; lv++){
         BELE* selected          = a + lv;
               selected->result |= (((RVAR)1) << lv);
@@ -93,8 +149,47 @@ void cleanCompose(){
         levelDpGain[lv] += levelDpGain[lv+1];
         levelDpPerf[lv]  = max(levelDpPerf[lv], levelDpPerf[lv+1]);
     }
-} ///check1
-////////////////////////////// SM
+}
+/////////////////////////////////// job aranger
+vector<BELE> jobAranger(){
+    vector<BELE> test(a, a + level);
+    if (level < autoBuildSize){
+        return test;
+    }
+    vector<BELE> preRet;
+
+    for (int i = 1; i < (1<<autoBuildSize); i++){
+        BELE buffer{};
+        buffer.result = 0;
+        buffer.index  = 0;
+        buffer.bc     = 0;
+        buffer.lv     = autoBuildSize;
+        buffer.rc     = 0;
+        int j       = i;
+        int counter = 0;
+        while (j) {
+            if (j & 1) {
+                BELE prec = a[ counter];
+                buffer.result |= prec.result;
+                buffer.index  |= prec.index;
+                buffer.bc     += prec.bc;
+                buffer.rc      = bitCount64(buffer.rc);
+                //fuck! buffer.lv      = counter;
+
+            }
+            j >>= 1;
+            counter++;
+        }
+        preRet.push_back(buffer);
+    }
+
+    for (int nd = autoBuildSize; nd < level; nd++){
+        preRet.push_back(a[nd]);
+    }
+    return preRet;
+}
+
+///////////////////////////////////SM
 struct queue_cmp
 {
     inline bool operator() (const BELE& struct1, const BELE& struct2)
@@ -118,10 +213,10 @@ struct queue_cmp
         //return  bitCount64(struct1.result)< bitCount64(struct2.result);
     }
 };
-void runner(int cId){
+void   runner      (int cId, vector<BELE> job){
     priority_queue<BELE, vector<BELE>, queue_cmp> q;
-    for (; cId < level; cId += NCORE){
-        q.push(a[cId]);
+    for (; cId < job.size(); cId += NCORE){
+        q.push(job[cId]);
     }
     //cout << q.size() << endl;
     while (!q.empty()){
@@ -141,7 +236,7 @@ void runner(int cId){
             }
         }else if (    (  tmp.lv == (level-1) )
                     ||( (tmp.result | levelDpRES[tmp.lv + 1]) != EXPECTED_RESULT )
-                    ||( ((float) tmp.bc + ((float) (AMTBIT - tmp.rc)) / (levelDpPerf[tmp.lv + 1])) > (float) CURRENT_BITCOUNT)
+                    ||( ((double ) tmp.bc + ((double) (AMTBIT - ((int)(tmp.rc)))) / (levelDpPerf[tmp.lv + 1])) > ((double) CURRENT_BITCOUNT))
                     || ((tmp.rc + levelDpGain[tmp.lv + 1]) < AMTBIT)
                  ) {
                 continue;
@@ -159,8 +254,8 @@ void runner(int cId){
         }
     }
 }
-////////////////////////////// RESULT check
-void resultTester(){
+///////////////////////////////////RESULT
+void   resultTester(){
     RVAR MOCKRESULT = 0;
     RVAR REIDX      = CURRENT_ANS;
 
@@ -172,13 +267,29 @@ void resultTester(){
     }
         bitset<64> myOut( MOCKRESULT);
         bitset<64> sheOut(EXPECTED_RESULT);
-        cout << "expect " << sheOut << endl;
-        cout << "actual " << myOut  << endl;
+        cout << "expect                      " << sheOut << endl;
+        cout << "actual                      " << myOut  << endl;
 
 }
+string graphDeRename(){
+    RVAR BUFANS = CURRENT_ANS;
+    for (int virNd = 0; virNd < level; virNd++){
+        if (BUFANS & 1){
+            resultBuf[ derenamer[virNd] ] = true;
+        }
+        BUFANS >>= 1;
+    }
+
+    string preRet = to_string(CURRENT_BITCOUNT) + ":";
+
+    for (int realNd = 0; realNd < level; realNd++){
+        preRet += (resultBuf[realNd] ? "1" : "0");
+    }
+    return preRet;
+}
 ///////////////////////////// setup
-void setup(int amtBit){
-    cout << "------- setup 64h variable -----------" << endl;
+string setup(int amtBit){
+    cout << "------- setup 64hsrm variable -----------" << endl;
     AMTBIT          = amtBit;
     level           = 0;
     RVAR ob         = -1;
@@ -187,23 +298,34 @@ void setup(int amtBit){
     level           = AMTBIT;
     cout << "--------start BD phase---------" << endl;
     buildCounter();
+    graphRenameAndAssign();
     cleanCompose();
+    vector<BELE> boostJob = jobAranger();
     cout << "--------start running phase---------" << endl;
     auto start = chrono::steady_clock::now();
-    #pragma omp parallel for default(none) shared(NCORE)
+
+    //////////////// running phrase
+    #pragma omp parallel for default(none) shared(NCORE, boostJob)
     for (int cId = 0; cId < NCORE; cId++) {
-        runner(cId);
+        runner(cId, boostJob);
     }
+    ///////////////////////////////////////////////////////////////////////////
+
     auto stop = chrono::steady_clock::now();
+
     cout << "--------start result verification phase---------" << endl;
     resultTester();
+    string printedResult = graphDeRename();
+
     cout << "Elapsed time in seconds: "
          << chrono::duration_cast<chrono::seconds>(stop - start).count()
          << " sec" << endl;
-
-    cout << CURRENT_BITCOUNT << endl;
+    cout << "number of used node    : "<< CURRENT_BITCOUNT << endl;
     bitset<64> myOut(CURRENT_ANS);
-    cout << myOut << endl;
+    cout << "used virtual node      : " << myOut << endl;
+    cout << "--------finished set and run phrase---------" << endl;
+
+    return printedResult;
 }
 
 string frontEnd64h(int amt, ifstream* specFile){
@@ -221,38 +343,29 @@ string frontEnd64h(int amt, ifstream* specFile){
 
         n1            = atoi(buf1.c_str());
         n2            = atoi(buf2.c_str());
-        a[n1].result |= (((RVAR)1) << n2);
-        a[n2].result |= (((RVAR)1) << n1);
+
+        renameBuf[n1].push_back(n2);
+        renameBuf[n2].push_back(n1);
     }
     ///////////////////// set and run
-    setup(amt);
+    return setup(amt);
     ///////////////////// result compose
-    string re;
-    re += to_string(CURRENT_BITCOUNT);
-    re += ":";
-    for (int rec = 0; rec < AMTBIT; rec++){
-        re += (CURRENT_ANS & 1) ? "1" : "0";
-        CURRENT_ANS >>= 1;
-    }
-    return re;
+
 }
 
 int main(){
-    ifstream  src = ifstream("../input/ring-60-60");
-    string bbbbbb;
-    getline(src, bbbbbb);
-    frontEnd64h(60, &src);
+    ifstream     src = ifstream("../input/ring-30-30");
+    string       s1;
+    int          n1;
+
+    getline(src, s1);
+    stringstream ss(s1);
+    ss >> s1;
+
+    n1 = atoi(s1.c_str());
+
+    cout << frontEnd64h(n1, &src) << endl;
+
+    src.close();
     return 0;
 }
-
-//int main(){
-//    a[0     +1].result = (RVAR)1 << 47;
-//    a[0     +1].result -=1;
-//    a[47*2+1].result = (RVAR)1 << 48;
-//    a[47*2+1].result   -= 1;
-//    for (int i = 0; i < 48; i++){
-//        RVAR start = 1;
-//        a[i*2+1].result |= (start << i);
-//    }
-//    frontEnd(48);
-//}

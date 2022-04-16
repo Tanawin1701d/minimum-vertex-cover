@@ -4,6 +4,7 @@
 #include<iostream>
 #include <algorithm>
 #include <queue>
+#include <stack>
 #include <fstream>
 #include <sstream>
 #include <bitset>
@@ -50,6 +51,7 @@ int  c[BIT_CT_ARR];
 RVAR EXPECTED_RESULT;
 RVAR CURRENT_ANS;
 ui16 CURRENT_BITCOUNT;
+bool        resultBuf[MAXNODE];
 /// renamer variable
 bool        isRenamed[MAXNODE]; // use index of real name
 vector<int> renameBuf[MAXNODE]; // use index and value of real name
@@ -67,21 +69,34 @@ void   buildCounter(){
         }
         c[i] = ct;
     }
-} /// check1
+}
 ui16   bitCount64  (RVAR sz){
     ui16 ct = 0;
     for (int i = 0; i < 64/BIT_CT_PER; i++){
-        ct += (ui16)c[sz & BIT_CT_MARKER];
+        ct += ((ui16)c[sz & BIT_CT_MARKER]);
         sz >>= BIT_CT_PER;
     }
     return ct;
 }
-/////////////////////////////////// BD
+///////////////////////////////////renamer and initialize BELE
+bool rmCmp(const int& struct1, const int& struct2){
+        return renameBuf[struct1].size() < renameBuf[struct2].size();
+}
 void   graphRenameAndAssign(){
     queue<int> q;
     int newKey = 0;
+    int conectedDetector = 0;
+    vector<int> initQ;
     for (int nd = 0; nd < level; nd++){
-        q.push(nd);
+        initQ.push_back(nd);
+    }
+    sort(initQ.begin(), initQ.end(), rmCmp);
+
+    for (int nd: initQ){
+        if (!isRenamed[nd]) {
+            q.push(nd);
+            conectedDetector++;
+        }
         while (!q.empty()){
             int myRealNode = q.front(); q.pop();
             if (!isRenamed[myRealNode]){
@@ -90,12 +105,18 @@ void   graphRenameAndAssign(){
                 derenamer[ newKey     ] = myRealNode; // backward for composed result
                 ////// update new key
                 newKey++;
+                vector<int> preQ;
                 for (int e : renameBuf[myRealNode]){
+                    preQ.push_back(e);
+                }
+                sort(preQ.begin(), preQ.end(), rmCmp);
+                for (int e : preQ) {
                     q.push(e);
                 }
             }
         }
     }
+    cout << ">> system is connected : " << (conectedDetector == 1) << endl;
 
     for (int srcNd = 0; srcNd < level; srcNd++){
         for (int nxtNd : renameBuf[srcNd]){
@@ -125,8 +146,8 @@ void   cleanCompose(){
         levelDpGain[lv] += levelDpGain[lv+1];
         levelDpPerf[lv]  = max(levelDpPerf[lv], levelDpPerf[lv+1]);
     }
-} ///check1
-////////////////////////////// SM
+}
+///////////////////////////////////SM
 struct queue_cmp
 {
     inline bool operator() (const BELE& struct1, const BELE& struct2)
@@ -173,7 +194,7 @@ void   runner      (int cId){
             }
         }else if (    (  tmp.lv == (level-1) )
                     ||( (tmp.result | levelDpRES[tmp.lv + 1]) != EXPECTED_RESULT )
-                    ||( ((float) tmp.bc + ((float) (AMTBIT - tmp.rc)) / (levelDpPerf[tmp.lv + 1])) > (float) CURRENT_BITCOUNT)
+                    ||( ((double ) tmp.bc + ((double) (AMTBIT - ((int)(tmp.rc)))) / (levelDpPerf[tmp.lv + 1])) > ((double) CURRENT_BITCOUNT))
                     || ((tmp.rc + levelDpGain[tmp.lv + 1]) < AMTBIT)
                  ) {
                 continue;
@@ -191,7 +212,7 @@ void   runner      (int cId){
         }
     }
 }
-////////////////////////////// RESULT check
+///////////////////////////////////RESULT
 void   resultTester(){
     RVAR MOCKRESULT = 0;
     RVAR REIDX      = CURRENT_ANS;
@@ -204,13 +225,29 @@ void   resultTester(){
     }
         bitset<64> myOut( MOCKRESULT);
         bitset<64> sheOut(EXPECTED_RESULT);
-        cout << "expect " << sheOut << endl;
-        cout << "actual " << myOut  << endl;
+        cout << "expect                      " << sheOut << endl;
+        cout << "actual                      " << myOut  << endl;
 
 }
+string graphDeRename(){
+    RVAR BUFANS = CURRENT_ANS;
+    for (int virNd = 0; virNd < level; virNd++){
+        if (BUFANS & 1){
+            resultBuf[ derenamer[virNd] ] = true;
+        }
+        BUFANS >>= 1;
+    }
+
+    string preRet = to_string(CURRENT_BITCOUNT) + ":";
+
+    for (int realNd = 0; realNd < level; realNd++){
+        preRet += (resultBuf[realNd] ? "1" : "0");
+    }
+    return preRet;
+}
 ///////////////////////////// setup
-void setup(int amtBit){
-    cout << "------- setup 64h variable -----------" << endl;
+string setup(int amtBit){
+    cout << "------- setup 64hsrm variable -----------" << endl;
     AMTBIT          = amtBit;
     level           = 0;
     RVAR ob         = -1;
@@ -229,17 +266,23 @@ void setup(int amtBit){
     for (int cId = 0; cId < NCORE; cId++) {
         runner(cId);
     }
+    ///////////////////////////////////////////////////////////////////////////
 
     auto stop = chrono::steady_clock::now();
+
     cout << "--------start result verification phase---------" << endl;
     resultTester();
+    string printedResult = graphDeRename();
+
     cout << "Elapsed time in seconds: "
          << chrono::duration_cast<chrono::seconds>(stop - start).count()
          << " sec" << endl;
-
-    cout << CURRENT_BITCOUNT << endl;
+    cout << "number of used node    : "<< CURRENT_BITCOUNT << endl;
     bitset<64> myOut(CURRENT_ANS);
-    cout << myOut << endl;
+    cout << "used virtual node      : " << myOut << endl;
+    cout << "--------finished set and run phrase---------" << endl;
+
+    return printedResult;
 }
 
 string frontEnd64h(int amt, ifstream* specFile){
@@ -262,13 +305,13 @@ string frontEnd64h(int amt, ifstream* specFile){
         renameBuf[n2].push_back(n1);
     }
     ///////////////////// set and run
-    setup(amt);
+    return setup(amt);
     ///////////////////// result compose
 
 }
 
 int main(){
-    ifstream     src = ifstream("../input/grid-60-104");
+    ifstream     src = ifstream("../input/rand-60-250");
     string       s1;
     int          n1;
 
@@ -278,7 +321,7 @@ int main(){
 
     n1 = atoi(s1.c_str());
 
-    frontEnd64h(n1, &src);
+    cout << frontEnd64h(n1, &src) << endl;
 
     src.close();
     return 0;
