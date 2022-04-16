@@ -351,18 +351,23 @@ string frontEnd64h(int amt, ifstream* specFile){
 
 }
 
-int main(){
-    ifstream     src = ifstream("../input/tree-75-74");
+int main(int argc, char* argv[]){
+    ifstream     srcfile  = ifstream(argv[1]);
+    ofstream     desfile  = ofstream(argv[2]);
     string       s1;
     int          n1;
 
-    getline(src, s1);
+    getline(srcfile, s1);
     stringstream ss(s1);
     ss >> s1;
     n1 = atoi(s1.c_str());
 
-    cout << frontEnd64h(n1, &src) << endl;
+    string preWriteResult = frontEnd64h(n1, &srcfile);
 
-    src.close();
+    cout    << preWriteResult << endl;
+    desfile << preWriteResult        ;
+
+    srcfile.close();
+    desfile.close();
     return 0;
 }
