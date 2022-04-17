@@ -52,7 +52,7 @@ int  c[BIT_CT_ARR];
 /// result var
 RVAR EXPECTED_RESULT;
 RVAR CURRENT_ANS;
-ui16 CURRENT_BITCOUNT;
+ui16 CURRENT_BITCOUNT = 129;
 bool        resultBuf[MAXNODE];
 /// renamer variable
 bool        isRenamed[MAXNODE]; // use index of real name
@@ -118,7 +118,7 @@ void   graphRenameAndAssign(){
             }
         }
     }
-    cout << ">> system is connected : " << (conectedDetector == 1) << endl;
+    cout << ">> graph is connected : " << (conectedDetector == 1) << endl;
 
     for (int srcNd = 0; srcNd < level; srcNd++){
         for (int nxtNd : renameBuf[srcNd]){
@@ -234,7 +234,7 @@ void   runner(int cId, vector<BELE> job){
             }
         }else if (    (  tmp.lv == (level-1) )
                     ||( (tmp.result | levelDpRES[tmp.lv + 1]) != EXPECTED_RESULT )
-                    ||( ((double ) tmp.bc + ((double) (AMTBIT - ((int)(tmp.rc)))) / (levelDpPerf[tmp.lv + 1])) > ((double) CURRENT_BITCOUNT))
+                    ||( ( ((double ) (tmp.bc)) + ((double) (AMTBIT - ((int)(tmp.rc)))) / (levelDpPerf[tmp.lv + 1])) > ((double) CURRENT_BITCOUNT))
                     || ((tmp.rc + levelDpGain[tmp.lv + 1]) < AMTBIT)
                  ) {
                 continue;
@@ -263,10 +263,13 @@ void   resultTester(){
         }
         REIDX >>= 1;
     }
-        bitset<128> myOut( MOCKRESULT);
-        bitset<128> sheOut(EXPECTED_RESULT);
-        cout << "expect                      " << sheOut << endl;
-        cout << "actual                      " << myOut  << endl;
+        bitset<64> myOutu( MOCKRESULT >> 64);
+        bitset<64> myOutd( MOCKRESULT);
+        bitset<64> sheOutu(EXPECTED_RESULT >> 64);
+        bitset<64> sheOutd(EXPECTED_RESULT);
+        cout << "is answers are equal        " << ((MOCKRESULT == EXPECTED_RESULT) ? "yes" : "NO") << endl;
+        cout << "expect                      " << sheOutu << sheOutd << endl;
+        cout << "actual                      " << myOutu  << myOutd  << endl;
 
 }
 string graphDeRename(){
@@ -303,7 +306,7 @@ string setup(int amtBit){
     auto start = chrono::steady_clock::now();
 
     //////////////// running phrase
-    #pragma omp parallel for default(none) shared(NCORE, boostJob)
+    #pragma omp parallel for default(none) shared(NCORE, boostJob, EXPECTED_RESULT)
     for (int cId = 0; cId < NCORE; cId++) {
         runner(cId, boostJob);
     }
@@ -319,8 +322,9 @@ string setup(int amtBit){
          << chrono::duration_cast<chrono::seconds>(stop - start).count()
          << " sec" << endl;
     cout << "number of used node    : "<< CURRENT_BITCOUNT << endl;
-    bitset<64> myOut(CURRENT_ANS);
-    cout << "used virtual node      : " << myOut << endl;
+    bitset<64> myOutu(CURRENT_ANS >> 64);
+    bitset<64> myOutd(CURRENT_ANS);
+    cout << "used virtual node      : " << myOutu << myOutd << endl;
     cout << "--------finished set and run phrase---------" << endl;
 
     return printedResult;
@@ -352,7 +356,7 @@ string frontEnd64h(int amt, ifstream* specFile){
 }
 
 int main(){
-    ifstream     src = ifstream("../input/grid-100-180");
+    ifstream     src = ifstream("../input/ring-100-100");
     string       s1;
     int          n1;
 
