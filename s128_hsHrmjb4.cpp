@@ -162,7 +162,7 @@ vector<BELE> jobAranger(){
         buffer.result = 0;
         buffer.index  = 0;
         buffer.bc     = 0;
-        buffer.lv     = autoBuildSize;
+        buffer.lv     = autoBuildSize - 1; // bug
         buffer.rc     = 0;
         int j       = i;
         int counter = 0;
@@ -172,7 +172,7 @@ vector<BELE> jobAranger(){
                 buffer.result |= prec.result;
                 buffer.index  |= prec.index;
                 buffer.bc     += prec.bc;
-                buffer.rc      = bitCount128(buffer.rc);
+                buffer.rc      = bitCount128(buffer.result);
                 //fuck! buffer.lv      = counter;
 
             }
@@ -352,7 +352,7 @@ string frontEnd64h(int amt, ifstream* specFile){
 }
 
 int main(){
-    ifstream     src = ifstream("../input/tree-75-74");
+    ifstream     src = ifstream("../input/grid-100-180");
     string       s1;
     int          n1;
 
