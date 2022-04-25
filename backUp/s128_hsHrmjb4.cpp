@@ -13,10 +13,10 @@
 
 using namespace std;
 
-typedef unsigned long long int RVAR;
-typedef uint16_t               ui16;
+typedef unsigned __int128 RVAR;
+typedef uint16_t          ui16;
 const int BIT_LEVEL_SIZE = 1;
-const int BIT_SIZE       = 64;
+const int BIT_SIZE       = 128;
 const int LEVEL_AMT      = BIT_SIZE/ BIT_LEVEL_SIZE;
 const int ARR_PER_LEVEL  = (1 << BIT_LEVEL_SIZE);
 const int ARR_SIZE       = ARR_PER_LEVEL * LEVEL_AMT;
@@ -26,6 +26,8 @@ const int BIT_CT_PER     = 8; // 8 bit
 const int BIT_CT_MARKER  = (1<<BIT_CT_PER)-1;
 const int NCORE          = 8;
 const int MAXNODE        = 100;
+
+const int autoBuildSize  = 7;
 
 struct BELE{
     RVAR  result;
@@ -40,9 +42,9 @@ int AMTBIT;
 int level;
 
 /// huristic infomation
-ui16  levelDpGain[LEVEL_AMT+1];
-float levelDpPerf[LEVEL_AMT+1];
-RVAR  levelDpRES [LEVEL_AMT+1];
+ui16   levelDpGain[LEVEL_AMT+1];
+double levelDpPerf[LEVEL_AMT+1];
+RVAR   levelDpRES [LEVEL_AMT+1];
 
 /// raw data
 BELE a[ARR_SIZE];
@@ -50,7 +52,7 @@ int  c[BIT_CT_ARR];
 /// result var
 RVAR EXPECTED_RESULT;
 RVAR CURRENT_ANS;
-ui16 CURRENT_BITCOUNT;
+ui16 CURRENT_BITCOUNT = 129;
 bool        resultBuf[MAXNODE];
 /// renamer variable
 bool        isRenamed[MAXNODE]; // use index of real name
@@ -70,9 +72,9 @@ void   buildCounter(){
         c[i] = ct;
     }
 }
-ui16   bitCount64  (RVAR sz){
+ui16   bitCount128 (RVAR sz){
     ui16 ct = 0;
-    for (int i = 0; i < 64/BIT_CT_PER; i++){
+    for (int i = 0; i < 128/BIT_CT_PER; i++){
         ct += ((ui16)c[sz & BIT_CT_MARKER]);
         sz >>= BIT_CT_PER;
     }
@@ -82,11 +84,6 @@ ui16   bitCount64  (RVAR sz){
 bool rmCmp(const int& struct1, const int& struct2){
         return renameBuf[struct1].size() < renameBuf[struct2].size();
 }
-
-bool rmCmpIv(const int& struct1, const int& struct2){
-    return renameBuf[struct1].size() > renameBuf[struct2].size();
-}
-
 void   graphRenameAndAssign(){
     queue<int> q;
     int newKey = 0;
@@ -95,7 +92,7 @@ void   graphRenameAndAssign(){
     for (int nd = 0; nd < level; nd++){
         initQ.push_back(nd);
     }
-    sort(initQ.begin(), initQ.end(), rmCmpIv);
+    sort(initQ.begin(), initQ.end(), rmCmp);
 
     for (int nd: initQ){
         if (!isRenamed[nd]) {
@@ -121,7 +118,7 @@ void   graphRenameAndAssign(){
             }
         }
     }
-    cout << ">> system is connected : " << (conectedDetector == 1) << endl;
+    cout << ">> graph is connected : " << (conectedDetector == 1) << endl;
 
     for (int srcNd = 0; srcNd < level; srcNd++){
         for (int nxtNd : renameBuf[srcNd]){
@@ -138,11 +135,11 @@ void   cleanCompose(){
               selected->result |= (((RVAR)1) << lv);
               selected->index   = (((RVAR)1) << lv);
               selected->bc      = 1;
-              selected->rc      = bitCount64(selected->result);
+              selected->rc      = bitCount128(selected->result);
               selected->lv      = lv;
         /////////////////// herustic build
               levelDpRES [lv]       = selected->result;
-              levelDpPerf[lv]       = ((float) selected->rc) / ((float)selected->bc);
+              levelDpPerf[lv]       = ((double) selected->rc) / ((double)selected->bc);
               levelDpGain[lv]       = selected->rc;
     }
 
@@ -151,6 +148,44 @@ void   cleanCompose(){
         levelDpGain[lv] += levelDpGain[lv+1];
         levelDpPerf[lv]  = max(levelDpPerf[lv], levelDpPerf[lv+1]);
     }
+}
+/////////////////////////////////// job aranger
+vector<BELE> jobAranger(){
+    vector<BELE> test(a, a + level);
+    if (level < autoBuildSize){
+        return test;
+    }
+    vector<BELE> preRet;
+
+    for (int i = 1; i < (1<<autoBuildSize); i++){
+        BELE buffer{};
+        buffer.result = 0;
+        buffer.index  = 0;
+        buffer.bc     = 0;
+        buffer.lv     = autoBuildSize - 1; // bug
+        buffer.rc     = 0;
+        int j       = i;
+        int counter = 0;
+        while (j) {
+            if (j & 1) {
+                BELE prec = a[ counter];
+                buffer.result |= prec.result;
+                buffer.index  |= prec.index;
+                buffer.bc     += prec.bc;
+                buffer.rc      = bitCount128(buffer.result);
+                //fuck! buffer.lv      = counter;
+
+            }
+            j >>= 1;
+            counter++;
+        }
+        preRet.push_back(buffer);
+    }
+
+    for (int nd = autoBuildSize; nd < level; nd++){
+        preRet.push_back(a[nd]);
+    }
+    return preRet;
 }
 ///////////////////////////////////SM
 struct queue_cmp
@@ -176,10 +211,10 @@ struct queue_cmp
         //return  bitCount64(struct1.result)< bitCount64(struct2.result);
     }
 };
-void   runner      (int cId){
+void   runner(int cId, vector<BELE> job){
     priority_queue<BELE, vector<BELE>, queue_cmp> q;
-    for (; cId < level; cId += NCORE){
-        q.push(a[cId]);
+    for (; cId < job.size(); cId += NCORE){
+        q.push(job[cId]);
     }
     //cout << q.size() << endl;
     while (!q.empty()){
@@ -199,7 +234,7 @@ void   runner      (int cId){
             }
         }else if (    (  tmp.lv == (level-1) )
                     ||( (tmp.result | levelDpRES[tmp.lv + 1]) != EXPECTED_RESULT )
-                    ||( ((double ) tmp.bc + ((double) (AMTBIT - ((int)(tmp.rc)))) / (levelDpPerf[tmp.lv + 1])) > ((double) CURRENT_BITCOUNT))
+                    ||( ( ((double ) (tmp.bc)) + ((double) (AMTBIT - ((int)(tmp.rc)))) / (levelDpPerf[tmp.lv + 1])) > ((double) CURRENT_BITCOUNT))
                     || ((tmp.rc + levelDpGain[tmp.lv + 1]) < AMTBIT)
                  ) {
                 continue;
@@ -212,7 +247,7 @@ void   runner      (int cId){
             tmp.result  |= a[nextLv].result;
             tmp.index   |= a[nextLv].index;
             tmp.bc      += 1;
-            tmp.rc       = bitCount64(tmp.result);
+            tmp.rc       = bitCount128(tmp.result);
             q.push(tmp);
         }
     }
@@ -228,10 +263,13 @@ void   resultTester(){
         }
         REIDX >>= 1;
     }
-        bitset<64> myOut( MOCKRESULT);
-        bitset<64> sheOut(EXPECTED_RESULT);
-        cout << "expect                      " << sheOut << endl;
-        cout << "actual                      " << myOut  << endl;
+        bitset<64> myOutu( MOCKRESULT >> 64);
+        bitset<64> myOutd( MOCKRESULT);
+        bitset<64> sheOutu(EXPECTED_RESULT >> 64);
+        bitset<64> sheOutd(EXPECTED_RESULT);
+        cout << "is answers are equal        " << ((MOCKRESULT == EXPECTED_RESULT) ? "yes" : "NO") << endl;
+        cout << "expect                      " << sheOutu << sheOutd << endl;
+        cout << "actual                      " << myOutu  << myOutd  << endl;
 
 }
 string graphDeRename(){
@@ -252,7 +290,7 @@ string graphDeRename(){
 }
 ///////////////////////////// setup
 string setup(int amtBit){
-    cout << "------- setup 64hsrm variable -----------" << endl;
+    cout << "------- setup 128 Hsrmjb4 variable -----------" << endl;
     AMTBIT          = amtBit;
     level           = 0;
     RVAR ob         = -1;
@@ -263,13 +301,14 @@ string setup(int amtBit){
     buildCounter();
     graphRenameAndAssign();
     cleanCompose();
+    vector<BELE> boostJob = jobAranger();
     cout << "--------start running phase---------" << endl;
     auto start = chrono::steady_clock::now();
 
     //////////////// running phrase
-    #pragma omp parallel for default(none) shared(NCORE)
+    #pragma omp parallel for default(none) shared(NCORE, boostJob, EXPECTED_RESULT)
     for (int cId = 0; cId < NCORE; cId++) {
-        runner(cId);
+        runner(cId, boostJob);
     }
     ///////////////////////////////////////////////////////////////////////////
 
@@ -283,8 +322,9 @@ string setup(int amtBit){
          << chrono::duration_cast<chrono::seconds>(stop - start).count()
          << " sec" << endl;
     cout << "number of used node    : "<< CURRENT_BITCOUNT << endl;
-    bitset<64> myOut(CURRENT_ANS);
-    cout << "used virtual node      : " << myOut << endl;
+    bitset<64> myOutu(CURRENT_ANS >> 64);
+    bitset<64> myOutd(CURRENT_ANS);
+    cout << "used virtual node      : " << myOutu << myOutd << endl;
     cout << "--------finished set and run phrase---------" << endl;
 
     return printedResult;
@@ -316,14 +356,13 @@ string frontEnd64h(int amt, ifstream* specFile){
 }
 
 int main(){
-    ifstream     src = ifstream("../input/rand-60-250");
+    ifstream     src = ifstream("../input/ring-100-100");
     string       s1;
     int          n1;
 
     getline(src, s1);
     stringstream ss(s1);
     ss >> s1;
-
     n1 = atoi(s1.c_str());
 
     cout << frontEnd64h(n1, &src) << endl;

@@ -7,7 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <bitset>
-#include "../controller.h"
+#include "controller.h"
 
 using namespace std;
 

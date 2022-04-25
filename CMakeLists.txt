@@ -11,7 +11,8 @@ add_executable(ass8_proj
         #s64_hsrm.cpp
         #s64_hsHrm.cpp
         #s64_hsHrmjb4.cpp
-        s128_hsHrmjb4.cpp
+        #s128_hsHrmjb4.cpp
+        #s128_test.cpp
         #s64_hsHrmpq.cpp
         #s64_hsHrmj2.cpp
         #s64_hsHrmJB.cpp
@@ -23,4 +24,8 @@ add_executable(ass8_proj
         #opm_test.cpp
         #controller.h
         #controller.cpp
+        #s128_test.cpp
+        s128_final.cpp
+
         )
+

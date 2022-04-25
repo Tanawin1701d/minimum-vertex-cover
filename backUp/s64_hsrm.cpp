@@ -9,7 +9,7 @@
 #include <sstream>
 #include <bitset>
 #include <chrono>
-#include "../controller.h"
+#include "controller.h"
 
 using namespace std;
 

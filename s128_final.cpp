@@ -9,7 +9,7 @@
 #include <sstream>
 #include <bitset>
 #include <chrono>
-#include "controller.h"
+#include <omp.h>
 
 using namespace std;
 
@@ -24,9 +24,10 @@ const int ST_SIZE        = LEVEL_AMT;
 const int BIT_CT_ARR     = 256; // 8 bit
 const int BIT_CT_PER     = 8; // 8 bit
 const int BIT_CT_MARKER  = (1<<BIT_CT_PER)-1;
-const int NCORE          = 8;
 const int MAXNODE        = 100;
 
+
+int NCORE                = 1;
 const int autoBuildSize  = 7;
 
 struct BELE{
@@ -53,7 +54,8 @@ int  c[BIT_CT_ARR];
 RVAR EXPECTED_RESULT;
 RVAR CURRENT_ANS;
 ui16 CURRENT_BITCOUNT = 129;
-bool        resultBuf[MAXNODE];
+bool        resultBuf     [MAXNODE];
+bool        resultRetCheck[MAXNODE];
 /// renamer variable
 bool        isRenamed[MAXNODE]; // use index of real name
 vector<int> renameBuf[MAXNODE]; // use index and value of real name
@@ -288,15 +290,37 @@ string graphDeRename(){
     }
     return preRet;
 }
+void   finalresultTester(){
+    for (int i = 0; i < level; i++){
+        if (resultBuf[i]){
+            resultRetCheck[i] = true;
+            for (int e: renameBuf[i]){
+                resultRetCheck[e] = true;
+            }
+        }
+    }
+    bool is_correct = true;
+    for (int i = 0; i < level; i++){
+        if (!resultRetCheck[i]){
+            is_correct = false;
+        }
+    }
+
+    cout << "is real node is correct     " << (is_correct ? "yes" : "no") << endl;
+
+}
+
 ///////////////////////////// setup
 string setup(int amtBit){
-    cout << "------- setup 64hsrm variable -----------" << endl;
+    cout << "------- setup 128 Hsrmjb4 variable -----------" << endl;
     AMTBIT          = amtBit;
     level           = 0;
     RVAR ob         = -1;
     EXPECTED_RESULT = (amtBit == BIT_SIZE) ? -1 : ((ob << amtBit) ^ ob);
     CURRENT_BITCOUNT= amtBit + 1;
     level           = AMTBIT;
+    NCORE           = omp_get_num_procs();
+    cout << "system running at :" << NCORE << "  proc" << endl;
     cout << "--------start BD phase---------" << endl;
     buildCounter();
     graphRenameAndAssign();
@@ -317,6 +341,7 @@ string setup(int amtBit){
     cout << "--------start result verification phase---------" << endl;
     resultTester();
     string printedResult = graphDeRename();
+    finalresultTester();
 
     cout << "Elapsed time in seconds: "
          << chrono::duration_cast<chrono::seconds>(stop - start).count()
@@ -355,18 +380,27 @@ string frontEnd64h(int amt, ifstream* specFile){
 
 }
 
-int main(){
-    ifstream     src = ifstream("../input/ring-100-100");
+int main(int argc, char* argv[]){
+    ifstream     srcfile  = ifstream(argv[1]);
+    ofstream     desfile  = ofstream(argv[2]);
+
+    cout << "--------initialize the program------------------" << endl;
+    cout << "source file :" << argv[1]<< endl;
+    cout << "des file    :" << argv[2]<< endl;
+
     string       s1;
     int          n1;
 
-    getline(src, s1);
+    getline(srcfile, s1);
     stringstream ss(s1);
     ss >> s1;
     n1 = atoi(s1.c_str());
 
-    cout << frontEnd64h(n1, &src) << endl;
+    string preWriteResult = frontEnd64h(n1, &srcfile);
+    cout    <<  preWriteResult << endl;
+    desfile << preWriteResult        ;
 
-    src.close();
+    srcfile.close();
+    desfile.close();
     return 0;
 }
