@@ -13,7 +13,7 @@
 - use highest covered vertex hueristic priority queue to aggresive search for solutions.
 - use graph renaming to let the machine cut useless state space more quickly due to better locality.
 - able to distribute workload to multi-core.
-- use runAhead execution to migrate load imbalancing.
+- use runAhead execution to mitigate load imbalancing.
 
 ## What is the input file look like ?
 ```
